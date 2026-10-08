@@ -1,13 +1,20 @@
 const PaymentProfile = require('../models/paymentProfileModel');
 const fs = require('fs/promises');
 const { assertImageFile } = require('../utils/imageValidation');
+const { readPackageVisibility, mergePackageVisibility, readPhotoboothControlVisibility, mergePhotoboothControlVisibility } = require('../utils/packageVisibility');
 
 const getKioskPaymentMethods = async (req, res) => {
   try {
     const user_id = req.kiosk.user_id;
     const profiles = await PaymentProfile.findByUserId(user_id);
+    const defaultProfile = await PaymentProfile.findDefaultForKiosk(user_id);
 
-    return res.status(200).json({ success: true, data: profiles });
+    return res.status(200).json({
+      success: true,
+      data: profiles,
+      package_visibility: readPackageVisibility(defaultProfile?.payment_data),
+      control_visibility: readPhotoboothControlVisibility(defaultProfile?.payment_data),
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -77,6 +84,10 @@ const updateAdminPaymentProfile = async (req, res) => {
       merchant_aliases,
       active_providers,
       payment_required,
+      show_digital_package,
+      show_print_package,
+      show_cursor_lock_icon,
+      show_calibration_icon,
     } = req.body;
 
     const existing = await PaymentProfile.findDefaultForKiosk(user_id);
@@ -89,6 +100,26 @@ const updateAdminPaymentProfile = async (req, res) => {
           : existing.payment_data;
       } catch (e) {}
     }
+
+    let packageVisibility;
+    try {
+      packageVisibility = mergePackageVisibility(paymentData, {
+        show_digital_package,
+        show_print_package,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    }
+    let controlVisibility;
+    try {
+      controlVisibility = mergePhotoboothControlVisibility(paymentData, {
+        show_cursor_lock_icon,
+        show_calibration_icon,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    }
+    paymentData = { ...paymentData, ...packageVisibility, ...controlVisibility };
 
     paymentData.unique_amount_enabled = !!unique_amount_enabled;
     paymentData.session_ttl_minutes = Number(session_ttl_minutes) || 5;

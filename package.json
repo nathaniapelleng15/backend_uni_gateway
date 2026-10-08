@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "NODE_ENV=development nodemon server.js",
     "build": "node --check server.js",
     "gopay:login": "node scripts/gopay-merchant-login.js",
     "test": "node --test"
@@ -21,6 +21,7 @@
     "mysql2": "^3.10.2",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {

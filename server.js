@@ -131,6 +131,8 @@ app.get('/api/v1/public/__build', (req, res) => {
   res.json({ build: BUILD_MARKER, pid: process.pid, cwd: process.cwd() });
 });
 
+const duitkuCallback = require('./controllers/duitkuController').callback;
+app.post(['/api/v1/payments/duitku/callback', '/api/payments/duitku/callback'], duitkuCallback);
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/kiosk', kioskRoutes);
 
