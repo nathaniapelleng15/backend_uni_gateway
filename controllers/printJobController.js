@@ -61,6 +61,10 @@ function createPrintJobController(overrides = {}) {
           });
         }
 
+        if (session.package_type === 'digital') {
+          return res.status(403).json({ success: false, message: 'Paket Digital tidak termasuk cetak foto.', error_code: 'PRINT_NOT_INCLUDED' });
+        }
+
         if (session.payment_status !== 'verified') {
           return res.status(403).json({
             success: false,

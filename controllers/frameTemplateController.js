@@ -1,3 +1,4 @@
+const { validatePackagePrices } = require('../utils/packagePricing');
 const pool = require('../config/db');
 const fs = require('fs/promises');
 const { assertImageFile } = require('../utils/imageValidation');
@@ -55,7 +56,7 @@ const getTemplates = async (req, res) => {
     const user_role = req.user.role;
 
     let query = `
-      SELECT ft.id, ft.name, ft.price, ft.layout_id, ft.image_url, ft.slot_count, ft.layout_config,
+      SELECT ft.id, ft.name, ft.price, ft.digital_price, ft.digital_print_price, ft.layout_id, ft.image_url, ft.slot_count, ft.layout_config,
              bg_color, accent_color, frame_type, gradient_stops, gradient_angle,
              gradient_style, text_elements, ft.asset_id, aa.file_url AS asset_url,
              ft.is_active, ft.usage_count, ft.created_at
@@ -87,6 +88,8 @@ const getTemplates = async (req, res) => {
         : (r.text_elements || []),
       is_active: Boolean(r.is_active),
       price: Number(r.price) || 0,
+      digital_price: r.digital_price == null ? null : Number(r.digital_price),
+      digital_print_price: r.digital_print_price == null ? null : Number(r.digital_print_price),
     })).map(template => {
       if (template.asset_id && template.asset_url && template.layout_config && typeof template.layout_config === 'object') {
         template.layout_config.overlayUrl = template.layout_config.overlayUrl || template.asset_url;
@@ -107,6 +110,7 @@ const getTemplates = async (req, res) => {
  */
 const uploadTemplate = async (req, res) => {
   try {
+    const packagePrices = validatePackagePrices(req.body);
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
@@ -126,13 +130,15 @@ const uploadTemplate = async (req, res) => {
 
     await pool.query(
       `INSERT INTO frame_templates
-         (user_id, name, price, layout_id, image_url, slot_count, layout_config,
+         (user_id, name, price, digital_price, digital_print_price, layout_id, image_url, slot_count, layout_config,
           bg_color, accent_color, frame_type, asset_id, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'png', ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'png', ?, 1)`,
       [
         user_id,
         name,
-        Number(price) || 0,
+        packagePrices.digital_price ?? (Number(price) || 0),
+        packagePrices.digital_price ?? null,
+        packagePrices.digital_print_price ?? null,
         layout_id || '1x1',
         imageUrl,
         slot_count || 1,
@@ -156,6 +162,7 @@ const uploadTemplate = async (req, res) => {
  */
 const generateTemplate = async (req, res) => {
   try {
+    const packagePrices = validatePackagePrices(req.body);
     let {
       name, price, layout_id, bg_color, accent_color, slot_count, layout_config, image_url,
       frame_type, gradient_stops, gradient_angle, gradient_style, text_elements, asset_id
@@ -178,14 +185,16 @@ const generateTemplate = async (req, res) => {
 
     await pool.query(
       `INSERT INTO frame_templates
-         (user_id, name, price, layout_id, image_url, slot_count, layout_config,
+         (user_id, name, price, digital_price, digital_print_price, layout_id, image_url, slot_count, layout_config,
           bg_color, accent_color, frame_type, gradient_stops, gradient_angle,
           gradient_style, text_elements, asset_id, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         user_id,
         name,
-        Number(price) || 0,
+        packagePrices.digital_price ?? (Number(price) || 0),
+        packagePrices.digital_price ?? null,
+        packagePrices.digital_print_price ?? null,
         layout_id,
         normalizeManagedUrl(image_url || ''),
         slot_count || 1,
@@ -213,6 +222,7 @@ const generateTemplate = async (req, res) => {
  */
 const updateTemplate = async (req, res) => {
   try {
+    const packagePrices = validatePackagePrices(req.body);
     const { id } = req.params;
     const user_id = req.user.id;
     const user_role = req.user.role;
@@ -236,6 +246,8 @@ const updateTemplate = async (req, res) => {
       UPDATE frame_templates SET
         name = COALESCE(?, name),
         price = COALESCE(?, price),
+        digital_price = COALESCE(?, digital_price),
+        digital_print_price = COALESCE(?, digital_print_price),
         layout_id = COALESCE(?, layout_id),
         slot_count = COALESCE(?, slot_count),
         layout_config = COALESCE(?, layout_config),
@@ -252,7 +264,9 @@ const updateTemplate = async (req, res) => {
     `;
     const params = [
       name || null,
-      price != null && price !== '' ? Number(price) : null,
+      packagePrices.digital_price ?? (price != null && price !== '' ? Number(price) : null),
+      packagePrices.digital_price ?? null,
+      packagePrices.digital_print_price ?? null,
       layout_id || null,
       slot_count || null,
       layout_config || null,
@@ -315,4 +329,36 @@ const deleteTemplate = async (req, res) => {
   }
 };
 
-module.exports = { getTemplates, uploadTemplate, generateTemplate, updateTemplate, deleteTemplate };
+// One atomic update for all authorized styles in a layout.
+const updateLayoutPackagePrices = async (req, res) => {
+  let connection;
+  try {
+    const prices = validatePackagePrices(req.body, true);
+    const layoutId = String(req.params.layout_id || '');
+    if (!layoutId || layoutId.length > 50) return res.status(400).json({ success: false, message: 'layout_id tidak valid.' });
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    let scope = 'layout_id = ? AND deleted_at IS NULL';
+    const scopeParams = [layoutId];
+    if (req.user.role !== 'Super Admin') {
+      scope += ' AND user_id = ?';
+      scopeParams.push(req.user.id);
+    }
+    const [rows] = await connection.query(`SELECT id FROM frame_templates WHERE ${scope} FOR UPDATE`, scopeParams);
+    if (!rows.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Tidak ada frame pada layout ini yang dapat diubah.' });
+    }
+    await connection.query(`UPDATE frame_templates SET price = ?, digital_price = ?, digital_print_price = ? WHERE ${scope}`,
+      [prices.digital_price, prices.digital_price, prices.digital_print_price, ...scopeParams]);
+    await connection.commit();
+    return res.status(200).json({ success: true, data: { ...prices, updated_frames: rows.length } });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  } finally {
+    connection?.release();
+  }
+};
+
+module.exports = { updateLayoutPackagePrices, getTemplates, uploadTemplate, generateTemplate, updateTemplate, deleteTemplate };

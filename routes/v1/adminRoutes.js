@@ -51,6 +51,7 @@ router.post('/kiosks/:kioskId/printing-config/refresh', printingConfigController
 router.get('/templates', frameTemplateController.getTemplates);
 router.post('/templates/generate', frameTemplateController.generateTemplate);
 router.post('/templates', upload.single('frame_image'), frameTemplateController.uploadTemplate);
+router.put('/templates/layout/:layout_id/prices', frameTemplateController.updateLayoutPackagePrices);
 router.put('/templates/:id', frameTemplateController.updateTemplate);
 router.delete('/templates/:id', frameTemplateController.deleteTemplate);
 

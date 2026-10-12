@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const duitku = require('../services/duitkuClient');
 const QRCode = require('qrcode');
+const { parsePackageType, resolvePackagePrices } = require('../utils/packagePricing');
+const { readPackageVisibility } = require('../utils/packageVisibility');
 const pool = require('../config/db');
 const Session = require('../models/sessionModel');
 const Transaction = require('../models/transactionModel');
@@ -16,12 +18,13 @@ const startSession = async (req, res) => {
   try {
     const kiosk_id = req.kiosk.id;
     const { frame_template_id } = req.body;
+    const packageType = parsePackageType(req.body.package_type);
     if (!frame_template_id) {
       return res.status(400).json({ success: false, message: 'frame_template_id wajib diisi' });
     }
 
     const [templates] = await pool.query(
-      `SELECT ft.price, ft.layout_config
+      `SELECT ft.price, ft.digital_price, ft.digital_print_price, ft.layout_config
        FROM frame_templates ft
        WHERE ft.id = ? AND ft.is_active = 1 AND ft.deleted_at IS NULL
          AND (ft.user_id IS NULL OR ft.user_id = ?)
@@ -32,11 +35,8 @@ const startSession = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Template frame tidak ditemukan atau tidak aktif' });
     }
 
-    const amount = resolvePrice({
-      templatePrice: templates[0].price,
-      layoutConfig: templates[0].layout_config,
-      kioskBasePrice: req.kiosk.base_price,
-    });
+    const packagePrices = resolvePackagePrices(templates[0], req.kiosk.base_price);
+    const amount = packageType === 'digital' ? packagePrices.digital_price : packagePrices.digital_print_price;
     const session_code = crypto.randomBytes(4).toString('hex').toUpperCase();
 
     // Check payment profile config
@@ -68,6 +68,12 @@ const startSession = async (req, res) => {
         sessionTtlMins = Number(pData.session_ttl_minutes) || 5;
         paymentRequired = pData.payment_required !== false;
       } catch (e) {}
+    }
+
+    const visibility = readPackageVisibility(profiles[0]?.payment_data);
+    if ((packageType === 'digital' && !visibility.show_digital_package)
+      || (packageType === 'digital_print' && !visibility.show_print_package)) {
+      return res.status(400).json({ success: false, message: 'Paket yang dipilih sedang tidak tersedia.' });
     }
 
     // Set payment columns on the session.
@@ -144,9 +150,11 @@ const startSession = async (req, res) => {
            payment_status = ?,
            payment_required_amount = ?,
            payment_expires_at = ?,
-           payment_provider = ?
+           payment_provider = ?,
+           package_type = ?,
+           package_base_amount = ?
          WHERE session_code = ?`,
-        [paymentRequired ? 'pending' : 'verified', finalAmount, expiresAt, paymentProvider, session_code]
+        [paymentRequired ? 'pending' : 'verified', finalAmount, expiresAt, paymentProvider, packageType, amount, session_code]
       );
 
       if (goPayMerchantEnabled) {
@@ -226,7 +234,7 @@ const startSession = async (req, res) => {
     let dynamicPayment = {};
     if (duitkuEnabled) {
       try {
-        const invoice = await duitku.createInvoice({ orderId: merchantOrderId, amount: finalAmount }, duitkuSettings);
+        const invoice = await duitku.createInvoice({ orderId: merchantOrderId, amount: finalAmount, packageType }, duitkuSettings);
         await pool.query('UPDATE duitku_invoices SET reference = ? WHERE merchant_order_id = ?', [invoice.reference, merchantOrderId]);
         const qrImage = await QRCode.toDataURL(invoice.qrString, { width: 500, margin: 4, errorCorrectionLevel: 'M' });
         dynamicPayment = { merchant_order_id: merchantOrderId, payment_reference: invoice.reference, payment_url: invoice.paymentUrl, qris_image_url: qrImage, payment_environment: duitkuSettings.environment };
@@ -243,6 +251,7 @@ const startSession = async (req, res) => {
         session_code,
         expected_amount: finalAmount,
         base_amount: amount,
+        package_type: packageType,
         unique_code: finalUniqueCode,
         payment_expires_at: expiresAt.toISOString(),
         verification_challenge_id: challengeId,
@@ -293,6 +302,8 @@ const getPaymentStatus = async (req, res) => {
         payment_required_amount: Number(session.payment_required_amount) || null,
         payment_expires_at: session.payment_expires_at,
         payment_provider: session.payment_provider || 'legacy_cv',
+        package_type: session.package_type || 'digital_print',
+        package_base_amount: session.package_base_amount == null ? null : Number(session.package_base_amount),
       },
     });
   } catch (error) {

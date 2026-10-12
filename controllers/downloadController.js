@@ -33,7 +33,7 @@ const serveDownloadPage = async (req, res, next) => {
 
     // Fetch photos
     const [photos] = await pool.query(
-      'SELECT url FROM photos WHERE session_id = ? ORDER BY id ASC',
+      "SELECT url FROM photos WHERE session_id = ? AND url NOT LIKE '/uploads/print/%' ORDER BY id ASC",
       [session_code]
     );
 

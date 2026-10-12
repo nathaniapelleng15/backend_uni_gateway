@@ -71,8 +71,8 @@ async function createInvoice(order, settings = config(), fetcher = fetch) {
   const data = await request('v2/inquiry', {
     merchantCode: settings.merchantCode, paymentAmount: amount,
     paymentMethod: settings.paymentMethod, merchantOrderId: order.orderId,
-    productDetails: 'Sesi Photobooth Uni-Smiles', customerVaName: 'Uni-Smiles Customer',
-    email: settings.email, itemDetails: [{ name: 'Sesi Photobooth', price: amount, quantity: 1 }],
+    productDetails: order.packageType === 'digital' ? 'Photobooth Uni-Smiles Digital' : 'Photobooth Uni-Smiles Digital & Print', customerVaName: 'Uni-Smiles Customer',
+    email: settings.email, itemDetails: [{ name: order.packageType === 'digital' ? 'Photobooth Digital' : 'Photobooth Digital & Print', price: amount, quantity: 1 }],
     callbackUrl: settings.callbackUrl, returnUrl: settings.returnUrl,
     expiryPeriod: settings.expiryMinutes,
     signature: sign(settings.merchantCode + order.orderId + amount, settings.apiKey),

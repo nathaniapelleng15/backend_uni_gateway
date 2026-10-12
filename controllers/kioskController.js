@@ -1,3 +1,4 @@
+const { resolvePackagePrices } = require('../utils/packagePricing');
 const kioskModel = require('../models/kioskModel');
 const crypto = require('crypto');
 const pool = require('../config/db');
@@ -357,7 +358,7 @@ const kioskController = {
       // kolom image_url-nya sering KOSONG. Tanpa join ke admin_assets, kiosk
       // menerima template tanpa gambar sama sekali.
       const [rows] = await pool.query(
-        `SELECT ft.id, ft.name, ft.price, ft.image_url, ft.slot_count, ft.layout_config, ft.layout_id,
+        `SELECT ft.id, ft.name, ft.price, ft.digital_price, ft.digital_print_price, ft.image_url, ft.slot_count, ft.layout_config, ft.layout_id,
                 ft.bg_color, ft.accent_color, ft.frame_type, ft.gradient_stops, ft.gradient_angle,
                 ft.gradient_style, ft.text_elements,
                 a.file_url AS asset_file_url
@@ -478,6 +479,7 @@ const kioskController = {
           _accentColor: r.accent_color || '#FFFFFF',
           _layoutConfig: layoutConfig,
           price,
+          ...resolvePackagePrices(r, req.kiosk.base_price),
           layout_price: Number(layoutConfig.layout_price) || price,
         });
       });

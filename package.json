@@ -8,7 +8,9 @@
     "dev": "NODE_ENV=development nodemon server.js",
     "build": "node --check server.js",
     "gopay:login": "node scripts/gopay-merchant-login.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:package-prices": "node scripts/migrate-package-prices.js",
+    "test:package-prices:integration": "PACKAGE_PRICING_INTEGRATION=true node --test test/packagePricing.integration.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

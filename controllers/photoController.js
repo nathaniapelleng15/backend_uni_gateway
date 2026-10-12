@@ -2,6 +2,7 @@ const Photo = require('../models/photoModel');
 const Session = require('../models/sessionModel');
 const { assertImageFile } = require('../utils/imageValidation');
 const fs = require('fs/promises');
+const path = require('path');
 
 const uploadPhoto = async (req, res) => {
   try {
@@ -26,7 +27,22 @@ const uploadPhoto = async (req, res) => {
     }
     await assertImageFile(req.file);
 
-    const fileUrl = '/uploads/' + req.file.filename;
+    const printAsset = req.body.purpose === 'print';
+    if (printAsset && session.package_type === 'digital') {
+      await fs.unlink(req.file.path).catch(() => {});
+      return res.status(403).json({ success: false, message: 'Paket Digital tidak termasuk cetak foto.' });
+    }
+    let fileUrl = '/uploads/' + req.file.filename;
+    if (printAsset) {
+      // Keep a session-owned photo row for cleanup, but isolate print-only
+      // derivatives from the digital gallery's "last photo is final" fallback.
+      const printDir = path.join(__dirname, '../uploads/print');
+      await fs.mkdir(printDir, { recursive: true });
+      const printPath = path.join(printDir, req.file.filename);
+      await fs.rename(req.file.path, printPath);
+      req.file.path = printPath;
+      fileUrl = '/uploads/print/' + req.file.filename;
+    }
 
     await Photo.create({ session_id: session_code, url: fileUrl });
 
