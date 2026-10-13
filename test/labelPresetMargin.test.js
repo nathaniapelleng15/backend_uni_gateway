@@ -6,13 +6,13 @@ const { findLabelPreset, LABEL_PRESETS } = require('../utils/paperSizes');
 /**
  * Margin cetak label Polaroid 54 x 67 mm DIKUNCI di preset, bukan di form Admin.
  *
- * Alasan: kotak putih labelnya sesuai target kertas (555 x 555 px di x=0 y=35)
+ * Alasan: kotak putih labelnya sesuai target kertas (555 x 555 px di x=0 y=71)
  * sesuai ukuran yang diminta; hasil fisik perlu diverifikasi. Kalau angka ini bisa diubah dari panel — atau
  * hilang karena form mengirim 0 — foto keluar dari bingkai lagi. Test ini
  * menahan angka itu supaya perubahan apa pun harus disengaja.
  */
 const PRESET = 'nimbotpaper-polaroid';
-const KOTAK = { top: 35, right: 83, left: 0, bottom: 201 };
+const KOTAK = { top: 71, right: 83, left: 0, bottom: 165 };
 
 // Lebar kanvas = 54 mm, tinggi = 67 mm pada 300 dpi.
 const KANVAS = { W: 638, H: 791 };
@@ -34,28 +34,28 @@ const BARIS = {
   allowed_layouts: [], photo_brightness: 120, photo_contrast: 100, photo_saturation: 100,
   thermal_density: 2, thermal_offset_y_px: 0, thermal_offset_x_px: 0,
   photo_fit_mode: 'cover',
-  ...{ print_margin_top_px: 35, print_margin_right_px: 83, print_margin_left_px: 0, print_margin_bottom_px: 201 },
+  ...{ print_margin_top_px: 71, print_margin_right_px: 83, print_margin_left_px: 0, print_margin_bottom_px: 165 },
 };
 
 test('preset label membawa kotak cetak yang sesuai target kertas', () => {
   const preset = findLabelPreset(PRESET);
   assert.ok(preset, 'preset harus ada');
   const px = (mm) => Math.round((mm / 25.4) * 300);
-  assert.strictEqual(px(preset.marginTopMm), KOTAK.top, 'atas 35 px');
-  assert.strictEqual(px(preset.marginRightMm), KOTAK.right, 'kanan 83 px (7,03 mm)');
-  assert.strictEqual(px(preset.marginLeftMm), KOTAK.left, 'kiri 0 px');
-  assert.strictEqual(px(preset.marginBottomMm), KOTAK.bottom, 'bawah 201 px');
+  assert.strictEqual(px(preset.marginTopMm), KOTAK.top, 'atas 71 px');
+  assert.strictEqual(px(preset.marginRightMm), KOTAK.right, 'kanan 95 px');
+  assert.strictEqual(px(preset.marginLeftMm), KOTAK.left, 'kiri 12 px');
+  assert.strictEqual(px(preset.marginBottomMm), KOTAK.bottom, 'bawah 177 px');
 });
 
 test('kotak selalu pas di kertas dan di kepala cetak', () => {
   const w = KANVAS.W - KOTAK.left - KOTAK.right;
   const h = KANVAS.H - KOTAK.top - KOTAK.bottom;
-  assert.strictEqual(w, 555, 'lebar kotak 46,99 mm');
-  assert.strictEqual(h, 555, 'tinggi kotak 46,99 mm');
+  assert.strictEqual(w, 555, 'lebar kotak 44,96 mm');
+  assert.strictEqual(h, 555, 'tinggi kotak 45,97 mm');
   // Keempat sisi harus menghabiskan kertas tepat: tidak ada piksel yang hilang
   // diam-diam di luar kanvas.
   assert.strictEqual(KOTAK.left + w + KOTAK.right, KANVAS.W, 'mendatar: 0 + 555 + 83 = 638');
-  assert.strictEqual(KOTAK.top + h + KOTAK.bottom, KANVAS.H, 'tegak: 35 + 555 + 201 = 791');
+  assert.strictEqual(KOTAK.top + h + KOTAK.bottom, KANVAS.H, 'tegak: 71 + 555 + 165 = 791');
   // Tepi kanan kotak masih di bawah jangkauan kepala cetak.
   assert.ok(KOTAK.left + w <= KEPALA_CETAK,
     `tepi kanan kotak ${KOTAK.left + w} harus <= kepala cetak ${KEPALA_CETAK}`);
@@ -67,10 +67,10 @@ test('simpan dari Admin tidak bisa mengubah margin preset', () => {
     ['tanpa margin sama sekali', { photo_brightness: 120 }],
     ['form mengirim semua nol', { print_margin_top_px: 0, print_margin_right_px: 0, print_margin_left_px: 0, print_margin_bottom_px: 0 }],
     ['angka ngawur dari form', { print_margin_top_px: 300, print_margin_bottom_px: 300 }],
-    ['angka lain yang kelihatan masuk akal', { print_margin_top_px: 35, print_margin_bottom_px: 189 }],
+    ['angka lain yang kelihatan masuk akal', { print_margin_top_px: 59, print_margin_bottom_px: 189 }],
   ];
   for (const [nama, input] of kasus) {
-    assert.deepEqual(margin({ ...BARIS, ...input }), KOTAK, `${nama}: margin harus tetap 35/83/0/201`);
+    assert.deepEqual(margin({ ...BARIS, ...input }), KOTAK, `${nama}: margin harus tetap 71/83/0/165`);
   }
 });
 

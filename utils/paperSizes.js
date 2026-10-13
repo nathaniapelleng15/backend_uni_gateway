@@ -88,15 +88,14 @@ const LABEL_PRESETS = [
     paperWidthMm: 54,
     paperHeightMm: 67,
     /**
-     * Target foto persegi 555 x 555 px di X 0 / Y 35 pada 300 dpi.
-     * Kanvas kertas 638 x 791: 0+555+83=638; 35+555+201=791.
-     * Tepi kanan foto 555 berada di bawah kepala cetak 576: tanpa scaling.
-     * Hasil fisik tetap perlu diverifikasi di kertas.
+     * Kalibrasi: kotak naik 6 px, ukuran tetap 555 x 555.
+     * Target percobaan 555 x 555 px di x=0 y=71 pada 300 dpi.
+     * 0+555+83=638; 71+555+165=791. Perlu verifikasi cetak fisik.
      */
-    marginTopMm: 35 / (300 / 25.4),
+    marginTopMm: 71 / (300 / 25.4),
     marginLeftMm: 0 / (300 / 25.4),
     marginRightMm: 83 / (300 / 25.4),
-    marginBottomMm: 201 / (300 / 25.4),
+    marginBottomMm: 165 / (300 / 25.4),
     /**
      * Kalibrasi posisi fisik, dalam PERSEN MILIMETER (10 = 0,1 mm).
      *
