@@ -88,30 +88,15 @@ const LABEL_PRESETS = [
     paperWidthMm: 54,
     paperHeightMm: 67,
     /**
-     * Kotak putih label 555 x 567 px, di X 0 / Y 70 px. Angka ini ditulis
-     * dalam PERSEN MILIMETER dibagi (300/25.4) supaya yang tersimpan tetap
-     * piksel utuh pada 300 dpi, bukan hasil pembulatan milimeter.
-     *
-     * Riwayat: 46x46 -> 47x47 -> 47x48 mm, lalu blok kotaknya digeser TURUN
-     * (atas 35 -> 70 px) supaya tepi atas foto tidak lagi keluar dari bingkai.
-     * Bawah ikut menyesuaikan (189 -> 154 px) agar tinggi kotak tetap 567 px —
-     * yang bergeser adalah POSISI, bukan ukuran.
-     *
-     * Lebar tidak bisa 3 + 47 + 3 = 53 mm: kepala cetak B1 Pro hanya 48,77 mm.
-     * Sisa lebar setelah kotak dipakai di sisi kanan, dan 5,03 mm sisi kanan
-     * label memang di luar jangkauan printer.
+     * Target foto persegi 555 x 555 px di X 0 / Y 35 pada 300 dpi.
+     * Kanvas kertas 638 x 791: 0+555+83=638; 35+555+201=791.
+     * Tepi kanan foto 555 berada di bawah kepala cetak 576: tanpa scaling.
+     * Hasil fisik tetap perlu diverifikasi di kertas.
      */
-    marginTopMm: 70 / (300 / 25.4),
-    /**
-     * Kiri 0 px: di sebelah kiri sudah tepi kertas, tidak ada ruang lagi.
-     */
+    marginTopMm: 35 / (300 / 25.4),
     marginLeftMm: 0 / (300 / 25.4),
     marginRightMm: 83 / (300 / 25.4),
-    /**
-     * Bawah 154 px (13,04 mm): mengikuti tinggi kotak yang tetap 567 px setelah
-     * atas dipindah ke 70 px. 70 + 567 + 154 = 791 px = tepat 67 mm.
-     */
-    marginBottomMm: 154 / (300 / 25.4),
+    marginBottomMm: 201 / (300 / 25.4),
     /**
      * Kalibrasi posisi fisik, dalam PERSEN MILIMETER (10 = 0,1 mm).
      *
