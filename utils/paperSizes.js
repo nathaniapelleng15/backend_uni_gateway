@@ -128,7 +128,14 @@ const LABEL_PRESETS = [
 
 const LABEL_PRESET_NAMES = LABEL_PRESETS.map(p => p.name);
 
-const PAPER_SIZES = [...PHOTO_PRESETS, ...THERMAL_PRESETS, ...LABEL_PRESET_NAMES];
+/** Legacy identifiers emitted by getOrCreate/defaults and already accepted by kiosk-agent. */
+const LEGACY_VALUES = [
+  '2R', '3R', '4R', 'STRIP', '6R',
+  'POLAROID', 'STRIP 2', 'STRIP 3', 'STRIP 4',
+  'GRID', 'GRID 2X2', 'GRID 2X3', 'GRID 3X3',
+];
+
+const PAPER_SIZES = [...PHOTO_PRESETS, ...THERMAL_PRESETS, ...LABEL_PRESET_NAMES, ...LEGACY_VALUES];
 
 /**
  * Pola ukuran kustom: "CUSTOM 48X150 MM" atau "CUSTOM 40x60mm".
@@ -189,7 +196,7 @@ function findLabelPreset(value) {
 /** Apakah nilai ini ukuran kertas yang diterima? */
 function isKnownPaperSize(value) {
   const text = String(value || '').trim();
-  if (PAPER_SIZES.includes(text)) return true;
+  if (PAPER_SIZES.includes(text) || LEGACY_VALUES.includes(text.toUpperCase())) return true;
   if (findLabelPreset(text)) return true;
   const custom = parseCustomSize(text);
   if (!custom) return false;
@@ -234,6 +241,7 @@ module.exports = {
   THERMAL_PRESETS,
   LABEL_PRESETS,
   LABEL_PRESET_NAMES,
+  LEGACY_VALUES,
   findLabelPreset,
   PAPER_SIZES,
   parseCustomSize,

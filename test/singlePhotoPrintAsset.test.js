@@ -49,14 +49,17 @@ test('download gallery excludes print derivatives and keeps full grid as final d
     '../config/db': { query: async sql => {
       queries.push(sql);
       if (sql.includes('FROM sessions')) return [[{session_code:'S'}]];
-      const photos = [{url:'/uploads/raw.png'}, {url:'/uploads/grid.png'}, {url:'/uploads/print/crop.png'}];
-      return [sql.includes("url NOT LIKE '/uploads/print/%'") ? photos.slice(0,2) : photos];
+      const photos = [{url:'/uploads/single_1.png'}, {url:'/uploads/single_2.png'},
+        {url:'/uploads/single_3.png'}, {url:'/uploads/S_frame.png'}, {url:'/uploads/print/crop.png'}];
+      return [sql.includes("url NOT LIKE '/uploads/print/%'") ? photos.slice(0,4) : photos];
     } },
     '../utils/security': { publicBaseUrl: () => 'https://cdn' }
   });
   const res = response();
   await controller.serveDownloadPage({params:{session_code:'S'}}, res);
-  assert.match(res.html, /https:\/\/cdn\/uploads\/grid.png/);
+  assert.match(res.html, /https:\/\/cdn\/uploads\/S_frame.png/);
+  for (const shot of [1,2,3]) assert.ok(res.html.includes(`https://cdn/uploads/single_${shot}.png`));
+  assert.match(res.html, /unismiles-satuan-3-S\.png/);
   assert.doesNotMatch(res.html, /print\/crop.png/);
-  assert.match(queries[1], /url NOT LIKE '\/uploads\/print\/%'/);
+  assert.ok(queries[1].includes("url NOT LIKE '/uploads/print/%'"));
 });

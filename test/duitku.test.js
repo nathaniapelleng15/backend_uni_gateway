@@ -94,6 +94,52 @@ test('callback validates provider, is idempotent, and rolls back failed fulfillm
   assert.equal(inserts, 1);
 });
 
+test('sandbox verification checks the provider and fulfills only a matching paid invoice', async t => {
+  const { verifySandboxPayment } = require('../controllers/duitkuController');
+  const original = { config: client.config, enabled: client.enabled, check: client.checkTransaction, query: pool.query, connect: pool.getConnection };
+  t.after(() => { client.config = original.config; client.enabled = original.enabled; client.checkTransaction = original.check; pool.query = original.query; pool.getConnection = original.connect; });
+  client.enabled = () => true;
+  client.config = () => ({ ...settings, environment: 'sandbox' });
+  const invoice = { merchant_order_id: 'order-verify', session_code: 'session-verify', merchant_code: 'DTEST', amount: 15000, reference: 'ref-verify', status: 'pending' };
+  const session = { session_code: 'session-verify', kiosk_id: 'kiosk-1', payment_provider: 'duitku', payment_required_amount: 15000, payment_status: 'pending' };
+  let statusCode = '01', providerCalls = 0, inserts = 0, commits = 0;
+  pool.query = async sql => sql.includes('FROM sessions') ? [[{ ...session }]] : [[{ ...invoice }]];
+  client.checkTransaction = async orderId => { providerCalls++; assert.equal(orderId, invoice.merchant_order_id); return { merchantOrderId: orderId, reference: invoice.reference, amount: invoice.amount, statusCode }; };
+  pool.getConnection = async () => ({
+    async query(sql) {
+      if (sql.includes('FROM duitku_invoices')) return [[{ ...invoice }]];
+      if (sql.includes('FROM sessions')) return [[{ ...session }]];
+      if (sql.includes('INSERT INTO transactions')) inserts++;
+      if (sql.includes("SET status = 'paid'")) invoice.status = 'paid';
+      if (sql.includes("SET payment_status = 'verified'")) session.payment_status = 'verified';
+      return [{ affectedRows: 1 }];
+    }, async beginTransaction() {}, async commit() { commits++; }, async rollback() {}, release() {},
+  });
+  const req = { params: { session_code: session.session_code }, kiosk: { id: 'kiosk-1' } };
+  let res = response(); await verifySandboxPayment(req, res);
+  assert.equal(res.statusCode, 200); assert.equal(res.body.data.payment_status, 'pending'); assert.equal(inserts, 0);
+  statusCode = '00'; res = response(); await verifySandboxPayment(req, res);
+  assert.equal(res.statusCode, 200); assert.equal(res.body.data.payment_status, 'verified'); assert.equal(inserts, 1); assert.equal(commits, 1);
+  res = response(); await verifySandboxPayment(req, res);
+  assert.equal(res.body.data.payment_status, 'verified'); assert.equal(inserts, 1);
+  assert.equal(providerCalls, 2);
+});
+
+test('sandbox verification rejects production configuration and invoice mismatches', async t => {
+  const { verifySandboxPayment } = require('../controllers/duitkuController');
+  const original = { config: client.config, enabled: client.enabled, query: pool.query, connect: pool.getConnection };
+  t.after(() => { client.config = original.config; client.enabled = original.enabled; pool.query = original.query; pool.getConnection = original.connect; });
+  client.enabled = () => true;
+  client.config = () => ({ ...settings, environment: 'production' });
+  let reads = 0; pool.query = async () => { reads++; return [[]]; };
+  let res = response(); await verifySandboxPayment({ params: { session_code: 's' }, kiosk: { id: 'k' } }, res);
+  assert.equal(res.statusCode, 403); assert.equal(reads, 0);
+  client.config = () => settings;
+  pool.query = async sql => sql.includes('FROM sessions') ? [[{ session_code: 's', kiosk_id: 'k', payment_provider: 'legacy_cv' }]] : [[]];
+  res = response(); await verifySandboxPayment({ params: { session_code: 's' }, kiosk: { id: 'k' } }, res);
+  assert.equal(res.statusCode, 403);
+});
+
 test('session returns dynamic QR at server price without unique suffix and fails closed', async t => {
   const { startSession } = require('../controllers/sessionController');
   const original = { query: pool.query, connect: pool.getConnection, config: client.config, create: client.createInvoice, provider: process.env.PAYMENT_PROVIDER };

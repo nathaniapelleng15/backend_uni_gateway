@@ -4,6 +4,7 @@ const upload = require('../../middlewares/uploadMiddleware');
 
 const verifyApiKey = require('../../middlewares/apiKeyMiddleware');
 const sessionController = require('../../controllers/sessionController');
+const duitkuController = require('../../controllers/duitkuController');
 const photoController = require('../../controllers/photoController');
 const paymentController = require('../../controllers/paymentController');
 
@@ -34,6 +35,10 @@ router.get('/payments', paymentController.getKioskPaymentMethods);
 router.get('/templates', kioskController.getKioskTemplates);
 router.post('/sessions/start', sessionController.startSession);
 router.get('/sessions/:session_code/payment-status', sessionController.getPaymentStatus);
+router.post('/sessions/:session_code/payment-verification/check', createRateLimiter({
+  windowMs: 60_000, max: 6,
+  keyGenerator: req => `${req.kiosk?.id || 'unknown'}:${req.params.session_code || 'unknown'}`
+}), duitkuController.verifySandboxPayment);
 router.post('/sessions/:session_code/payment', sessionController.verifyPayment);
 router.post('/sessions/:session_code/payment-verifications', uploadMemory, PaymentVerificationController.submitEvidence);
 router.get('/sessions/:session_code/payment-verifications/:attempt_id', PaymentVerificationController.checkAttempt);

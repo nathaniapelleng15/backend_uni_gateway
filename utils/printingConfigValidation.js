@@ -190,12 +190,10 @@ function validatePrintingConfig(input = {}, existing = {}, reported = null) {
   // Ukuran kustom divalidasi terhadap batas fisik printer termal supaya tidak ada
   // ukuran yang diterima sistem tetapi pasti terpotong di printer.
   if (!isKnownPaperSize(merged.paper_size)) {
-    const custom = validateCustomSize(merged.paper_size);
-    if (!custom.ok) {
-      throw new PrintingConfigValidationError(
-        custom.message || `paper_size must be one of: ${PAPER_SIZES.join(', ')}, atau ukuran kustom.`
-      );
-    }
+    const message = /^CUSTOM\b/i.test(String(merged.paper_size || '').trim())
+      ? validateCustomSize(merged.paper_size).message
+      : `Ukuran kertas "${merged.paper_size}" tidak dikenali. Pilih preset yang tersedia atau gunakan CUSTOM <lebar>X<tinggi> MM.`;
+    throw new PrintingConfigValidationError(message);
   }
   if (!ORIENTATIONS.includes(merged.orientation)) {
     throw new PrintingConfigValidationError('orientation must be portrait or landscape.');
@@ -268,10 +266,9 @@ function validatePrintingConfig(input = {}, existing = {}, reported = null) {
   if (!enabled) {
     normalized.adapter = 'disabled';
     normalized.printer_name = null;
-  } else {
-    if (normalized.adapter === 'disabled') {
-      throw new PrintingConfigValidationError('Printing cannot be enabled with the disabled adapter.');
-    }
+  } else if (normalized.adapter !== 'disabled') {
+    // disabled applies only to agent/system printing. Direct Bluetooth is
+    // owned by the photobooth and needs no OS printer or agent adapter.
     if (!normalized.printer_name) {
       throw new PrintingConfigValidationError('printer_name is required when printing is enabled.');
     }
