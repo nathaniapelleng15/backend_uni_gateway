@@ -19,6 +19,11 @@ const path = require('path');
 
 const backendRoot = path.join(__dirname, '..');
 
+// Controller imports share this pool; close its sockets after the smoke tests.
+test.after(async () => {
+  await require(path.join(backendRoot, 'config/db')).end();
+});
+
 /** Controller dimuat di dalam try supaya kegagalan impor terbaca jelas. */
 function load(rel) {
   // Variabel lingkungan minimal supaya modul bisa dimuat di luar server.
