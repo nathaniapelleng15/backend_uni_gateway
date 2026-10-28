@@ -23,7 +23,6 @@
     "mysql2": "^3.10.2",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
-    "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {

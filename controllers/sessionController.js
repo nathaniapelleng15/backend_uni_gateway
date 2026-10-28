@@ -1,6 +1,5 @@
 const crypto = require('crypto');
-const duitku = require('../services/duitkuClient');
-const QRCode = require('qrcode');
+
 const { parsePackageType, resolvePackagePrices } = require('../utils/packagePricing');
 const { readPackageVisibility } = require('../utils/packageVisibility');
 const pool = require('../config/db');
@@ -82,10 +81,7 @@ const startSession = async (req, res) => {
     // dan pemanggil diberi tahu lewat flag di respons supaya photobooth bisa
     // MELEWATI layar bayar, bukan menampilkannya lalu menggantung.
     const challengeId = crypto.randomUUID();
-    const duitkuEnabled = paymentRequired && duitku.enabled();
-    const duitkuSettings = duitkuEnabled ? duitku.config() : null;
-    const merchantOrderId = duitkuEnabled ? `US-${crypto.randomUUID()}` : null;
-    const goPayMerchantEnabled = paymentRequired && !duitkuEnabled
+    const goPayMerchantEnabled = paymentRequired
       && String(process.env.GOPAY_MERCHANT_ENABLED || '').toLowerCase() === 'true';
     const goPayMerchantId = String(process.env.GOPAY_MERCHANT_ID || '').trim();
     if (goPayMerchantEnabled && !goPayMerchantId) {
@@ -93,13 +89,13 @@ const startSession = async (req, res) => {
     }
     // Automatic payment sessions start before capture/edit; keep their amount
     // reservation alive long enough to reach the QRIS screen.
-    const effectiveTtlMinutes = duitkuEnabled ? duitkuSettings.expiryMinutes : goPayMerchantEnabled ? Math.max(30, sessionTtlMins) : sessionTtlMins;
+    const effectiveTtlMinutes = goPayMerchantEnabled ? Math.max(30, sessionTtlMins) : sessionTtlMins;
     const expiresAt = new Date(Date.now() + effectiveTtlMinutes * 60 * 1000);
 
     const connection = await pool.getConnection();
     let finalAmount = amount;
     let finalUniqueCode = null;
-    const paymentProvider = duitkuEnabled ? 'duitku' : goPayMerchantEnabled ? 'gopay_merchant' : 'legacy_cv';
+    const paymentProvider = goPayMerchantEnabled ? 'gopay_merchant' : 'legacy_cv';
     try {
       await connection.query("SET time_zone = '+00:00'");
       await connection.beginTransaction();
@@ -139,23 +135,31 @@ const startSession = async (req, res) => {
 
       // Automatic matching requires unique active amounts even if an old
       // payment profile disabled visual-proof suffixes.
-      const useUniqueAmount = !duitkuEnabled && (goPayMerchantEnabled || uniqueAmountEnabled);
+      const useUniqueAmount = goPayMerchantEnabled || uniqueAmountEnabled;
       const initial = buildUniqueAmount(amount, pendingAmounts);
       finalAmount = useUniqueAmount ? initial.total : amount;
       finalUniqueCode = useUniqueAmount ? initial.uniqueCode : null;
 
       await Session.create({ session_code, kiosk_id, frame_template_id }, connection);
-      await connection.query(
-        `UPDATE sessions SET
-           payment_status = ?,
-           payment_required_amount = ?,
-           payment_expires_at = ?,
-           payment_provider = ?,
-           package_type = ?,
-           package_base_amount = ?
-         WHERE session_code = ?`,
-        [paymentRequired ? 'pending' : 'verified', finalAmount, expiresAt, paymentProvider, packageType, amount, session_code]
-      );
+      try {
+        await connection.query(
+          `UPDATE sessions SET
+             payment_status = ?, payment_required_amount = ?, payment_expires_at = ?,
+             payment_provider = ?, package_type = ?, package_base_amount = ?
+           WHERE session_code = ?`,
+          [paymentRequired ? 'pending' : 'verified', finalAmount, expiresAt, paymentProvider, packageType, amount, session_code]
+        );
+      } catch (error) {
+        // Legacy visual-proof databases predate provider tracking. Only this
+        // column is optional; merchant polling must still require its metadata.
+        if (goPayMerchantEnabled || error.code !== 'ER_BAD_FIELD_ERROR' || !/payment_provider/.test(error.message)) throw error;
+        await connection.query(
+          `UPDATE sessions SET payment_status = ?, payment_required_amount = ?,
+             payment_expires_at = ?, package_type = ?, package_base_amount = ?
+           WHERE session_code = ?`,
+          [paymentRequired ? 'pending' : 'verified', finalAmount, expiresAt, packageType, amount, session_code]
+        );
+      }
 
       if (goPayMerchantEnabled) {
         let reserved = false;
@@ -217,12 +221,7 @@ const startSession = async (req, res) => {
         );
       }
 
-      if (duitkuEnabled) {
-        await connection.query(
-          'INSERT INTO duitku_invoices (merchant_order_id, session_code, merchant_code, amount, expires_at) VALUES (?, ?, ?, ?, ?)',
-          [merchantOrderId, session_code, duitkuSettings.merchantCode, finalAmount, expiresAt]
-        );
-      }
+
       await connection.commit();
     } catch (error) {
       await connection.rollback().catch(() => {});
@@ -231,18 +230,7 @@ const startSession = async (req, res) => {
       connection.release();
     }
 
-    let dynamicPayment = {};
-    if (duitkuEnabled) {
-      try {
-        const invoice = await duitku.createInvoice({ orderId: merchantOrderId, amount: finalAmount, packageType }, duitkuSettings);
-        await pool.query('UPDATE duitku_invoices SET reference = ? WHERE merchant_order_id = ?', [invoice.reference, merchantOrderId]);
-        const qrImage = await QRCode.toDataURL(invoice.qrString, { width: 500, margin: 4, errorCorrectionLevel: 'M' });
-        dynamicPayment = { merchant_order_id: merchantOrderId, payment_reference: invoice.reference, payment_url: invoice.paymentUrl, qris_image_url: qrImage, payment_environment: duitkuSettings.environment };
-      } catch (error) {
-        await pool.query("UPDATE sessions SET payment_status = 'expired' WHERE session_code = ? AND payment_status = 'pending'", [session_code]);
-        throw error;
-      }
-    }
+
     return res.status(201).json({
       success: true,
       session_code,
@@ -255,8 +243,7 @@ const startSession = async (req, res) => {
         unique_code: finalUniqueCode,
         payment_expires_at: expiresAt.toISOString(),
         verification_challenge_id: challengeId,
-        payment_method: duitkuEnabled ? 'duitku_qris' : goPayMerchantEnabled ? 'gopay_merchant_polling' : 'qris_visual_proof',
-        ...dynamicPayment,
+        payment_method: goPayMerchantEnabled ? 'gopay_merchant_polling' : 'qris_visual_proof',
         // false = pembayaran sedang dimatikan lewat payment_profiles; layar uji
         // memakainya untuk melompat langsung ke pengambilan foto.
         payment_required: paymentRequired

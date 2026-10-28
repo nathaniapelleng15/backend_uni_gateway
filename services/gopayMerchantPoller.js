@@ -275,8 +275,8 @@ const pollOnce = async (config = feedAdapter.readConfig()) => {
 };
 
 const start = () => {
-  // A legacy enabled flag must not start GoPay alongside the selected gateway.
-  if (String(process.env.PAYMENT_PROVIDER || '').trim().toLowerCase() === 'duitku') return false;
+  // Merchant polling remains opt-in through its own configuration.
+
   const config = feedAdapter.readConfig();
   if (!config.enabled || timer) return false;
 

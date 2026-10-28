@@ -1,5 +1,5 @@
 const { test } = require('node:test');
-test('package prices persist through checkout, repricing and duplicate callbacks (local DB)', { skip: process.env.PACKAGE_PRICING_INTEGRATION !== 'true' }, async () => {
+test('package prices persist through legacy checkout and repricing (local DB)', { skip: process.env.PACKAGE_PRICING_INTEGRATION !== 'true' }, async () => {
 const path = require('path');
 const root = path.resolve(__dirname, '..');
 require(path.join(root, 'node_modules/dotenv')).config({ path: path.join(root, '.env') });
@@ -8,14 +8,13 @@ const crypto = require('crypto');
 const pool = require(path.join(root, 'config/db'));
 const frames = require(path.join(root, 'controllers/frameTemplateController'));
 const sessions = require(path.join(root, 'controllers/sessionController'));
-const client = require(path.join(root, 'services/duitkuClient'));
-const callbacks = require(path.join(root, 'controllers/duitkuController'));
 const { createPrintJobController } = require(path.join(root, 'controllers/printJobController'));
 const res = () => ({ statusCode: 200, status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } });
 const layoutId = 'P' + crypto.randomBytes(2).toString('hex');
 const sessionCodes = [];
-const orderIds = [];
-const originals = { create: client.createInvoice, check: client.checkTransaction };
+const expectedTotals = [];
+const previousMerchant = process.env.GOPAY_MERCHANT_ENABLED;
+process.env.GOPAY_MERCHANT_ENABLED = 'false';
 let user;
 
   try {
@@ -48,42 +47,30 @@ let user;
     const kioskLayout = kioskResult.body.data.find(layout => layout.id === layoutId);
     assert.equal(kioskLayout.styles.length, 2);
     assert.ok(kioskLayout.styles.every(style => style.digital_price === 2000 && style.digital_print_price === 5000));
-    const issued = new Map();
-    client.createInvoice = async order => {
-      const reference = 'PKG-TEST-' + crypto.randomUUID();
-      issued.set(order.orderId, { reference, amount: order.amount });
-      return { reference, qrString: 'sandbox-test-only', paymentUrl: 'https://sandbox.duitku.com' };
-    };
-    client.checkTransaction = async id => ({ merchantOrderId: id, ...issued.get(id), statusCode: '00' });
     for (const [type, amount] of [['digital', 2000], ['digital_print', 5000]]) {
       const result = res();
       await sessions.startSession({ kiosk, body: { frame_template_id: templates[0].id, package_type: type, amount: 1 } }, result);
       assert.equal(result.statusCode, 201, JSON.stringify(result.body));
       const data = result.body.data;
-      sessionCodes.push(data.session_code); orderIds.push(data.merchant_order_id);
-      assert.equal(result.body.amount, amount); assert.equal(data.package_type, type);
-      const settings = client.config();
-      const body = { merchantCode: settings.merchantCode, merchantOrderId: data.merchant_order_id, reference: data.payment_reference, amount: String(amount), resultCode: '00' };
-      body.signature = client.sign(body.merchantCode + body.amount + body.merchantOrderId, settings.apiKey);
-      for (let repeat = 0; repeat < 2; repeat++) {
-        const confirmation = res(); await callbacks.callback({ body }, confirmation);
-        assert.equal(confirmation.statusCode, 200, JSON.stringify(confirmation.body));
-      }
+      sessionCodes.push(data.session_code);
+      assert.equal(data.base_amount, amount); assert.equal(data.package_type, type);
+      assert.equal(data.payment_method, 'qris_visual_proof');
+      expectedTotals.push(result.body.amount);
+      assert.equal(result.body.amount, amount + (data.unique_code || 0));
       const [payments] = await pool.query('SELECT amount FROM transactions WHERE session_id = ?', [data.session_code]);
-      assert.equal(payments.length, 1); assert.equal(Number(payments[0].amount), amount);
+      assert.equal(payments.length, 0, 'unpaid sessions cannot manufacture successful transactions');
     }
     await setPrices(3000, 7000);
     const [snapshots] = await pool.query('SELECT package_type, package_base_amount, payment_required_amount, payment_status FROM sessions WHERE session_code IN (?, ?) ORDER BY package_type', sessionCodes);
-    assert.deepEqual(snapshots.map(row => [row.package_type, Number(row.package_base_amount), Number(row.payment_required_amount), row.payment_status]), [['digital', 2000, 2000, 'verified'], ['digital_print', 5000, 5000, 'verified']]);
+    assert.deepEqual(snapshots.map(row => [row.package_type, Number(row.package_base_amount), Number(row.payment_required_amount), row.payment_status]), [['digital', 2000, expectedTotals[0], 'pending'], ['digital_print', 5000, expectedTotals[1], 'pending']]);
     const printResult = res();
     await createPrintJobController().createPrintJob({ kiosk, params: { session_code: sessionCodes[0] }, body: { image_url: '/uploads/test.png', copies: 1 } }, printResult, error => { throw error; });
     assert.equal(printResult.statusCode, 403); assert.equal(printResult.body.error_code, 'PRINT_NOT_INCLUDED');
-    console.log({ passed: true, database: 'local', framesUpdatedAtomically: 2, digitalAmount: 2000, digitalPrintAmount: 5000, callbackDuplicates: 'one transaction each', oldSessionPrices: 'unchanged after Admin repricing', digitalPrintAccess: '403 blocked', provider: 'mocked; no real payments or printing' });
+    console.log({ passed: true, database: 'local', framesUpdatedAtomically: 2, digitalAmount: 2000, digitalPrintAmount: 5000, paymentSettlement: 'remains pending until actual verification', oldSessionPrices: 'unchanged after Admin repricing', digitalPrintAccess: '403 blocked', provider: 'legacy visual proof; no gateway request or real printing' });
   } finally {
-    client.createInvoice = originals.create; client.checkTransaction = originals.check;
+    if (previousMerchant === undefined) delete process.env.GOPAY_MERCHANT_ENABLED; else process.env.GOPAY_MERCHANT_ENABLED = previousMerchant;
     for (const code of sessionCodes) {
       await pool.query('DELETE FROM transactions WHERE session_id = ?', [code]);
-      await pool.query('DELETE FROM duitku_invoices WHERE session_code = ?', [code]);
       await pool.query('DELETE FROM sessions WHERE session_code = ?', [code]);
     }
     if (user) await pool.query('DELETE FROM frame_templates WHERE layout_id = ? AND user_id = ?', [layoutId, user.id]);

@@ -295,7 +295,7 @@ const PaymentVerificationController = {
 
       // Check Session & Kiosk Ownership
       const [sessions] = await pool.query(
-        `SELECT s.session_code as session_id, s.payment_status, s.payment_provider, s.payment_required_amount, s.payment_expires_at
+        `SELECT s.*, s.session_code as session_id
          FROM sessions s
          WHERE s.session_code = ? AND s.kiosk_id = ?
          LIMIT 1`,
@@ -307,8 +307,8 @@ const PaymentVerificationController = {
       }
 
       const session = sessions[0];
-      if (session.payment_provider === 'duitku') {
-        return res.status(403).json({ success: false, message: 'Pembayaran Duitku hanya diverifikasi melalui callback gateway.' });
+      if (session.payment_provider && !['legacy_cv', 'gopay_merchant'].includes(session.payment_provider)) {
+        return res.status(403).json({ success: false, message: 'Metode pembayaran sesi lama ini tidak lagi didukung. Mulai sesi baru.' });
       }
 
       if (session.payment_status === 'verified') {
@@ -490,9 +490,9 @@ const PaymentVerificationController = {
         return res.status(404).json({ success: false, message: 'Attempt tidak ditemukan' });
       }
 
-      const [gatewaySessions] = await conn.query('SELECT payment_provider FROM sessions WHERE session_code = ?', [attempt.session_id]);
-      if (gatewaySessions[0]?.payment_provider === 'duitku') {
-        return res.status(403).json({ success: false, message: 'Pembayaran Duitku hanya diverifikasi melalui callback gateway.' });
+      const [gatewaySessions] = await conn.query('SELECT * FROM sessions WHERE session_code = ?', [attempt.session_id]);
+      if (gatewaySessions[0]?.payment_provider && !['legacy_cv', 'gopay_merchant'].includes(gatewaySessions[0].payment_provider)) {
+        return res.status(403).json({ success: false, message: 'Metode pembayaran sesi lama ini tidak lagi didukung. Mulai sesi baru.' });
       }
 
       await conn.beginTransaction();

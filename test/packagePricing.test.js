@@ -1,7 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../config/db');
-const duitku = require('../services/duitkuClient');
 const { resolvePackagePrices, parsePackageType, validatePackagePrices } = require('../utils/packagePricing');
 const { startSession } = require('../controllers/sessionController');
 const { updateLayoutPackagePrices } = require('../controllers/frameTemplateController');
@@ -26,19 +25,17 @@ test('separate package prices win and legacy template/kiosk fallbacks remain ava
   assert.throws(() => resolvePackagePrices({ digital_price: -10, price: 1000 }), { statusCode: 503 });
 });
 
-test('session invoices use chosen package server price and persist an immutable price snapshot', async t => {
-  const originals = { query: pool.query, connect: pool.getConnection, config: duitku.config, create: duitku.createInvoice, provider: process.env.PAYMENT_PROVIDER };
+test('legacy sessions use chosen package server price and persist an immutable price snapshot', async t => {
+  const originals = { query: pool.query, connect: pool.getConnection, merchant: process.env.GOPAY_MERCHANT_ENABLED };
   t.after(() => {
-    pool.query = originals.query; pool.getConnection = originals.connect; duitku.config = originals.config; duitku.createInvoice = originals.create;
-    if (originals.provider === undefined) delete process.env.PAYMENT_PROVIDER; else process.env.PAYMENT_PROVIDER = originals.provider;
+    pool.query = originals.query; pool.getConnection = originals.connect;
+    if (originals.merchant === undefined) delete process.env.GOPAY_MERCHANT_ENABLED; else process.env.GOPAY_MERCHANT_ENABLED = originals.merchant;
   });
-  process.env.PAYMENT_PROVIDER = 'duitku';
-  let digital = 10000, print = 20000, visibility = {}, invoices = [], snapshots = [];
-  duitku.config = () => ({ merchantCode: 'DTEST', expiryMinutes: 10, environment: 'sandbox' });
-  duitku.createInvoice = async order => { invoices.push(order.amount); return { reference: 'ref-' + invoices.length, qrString: 'test-qris', paymentUrl: 'https://sandbox.duitku.com' }; };
+  process.env.GOPAY_MERCHANT_ENABLED = 'false';
+  let digital = 10000, print = 20000, visibility = {}, snapshots = [];
   pool.query = async sql => {
     if (sql.includes('FROM frame_templates')) return [[{ price: 1, digital_price: digital, digital_print_price: print }]];
-    if (sql.includes('FROM payment_profiles')) return [[{ payment_data: { ...visibility, unique_amount_enabled: true } }]];
+    if (sql.includes('FROM payment_profiles')) return [[{ payment_data: { ...visibility, unique_amount_enabled: false } }]];
     return [{ affectedRows: 1 }];
   };
   pool.getConnection = async () => ({
@@ -61,7 +58,7 @@ test('session invoices use chosen package server price and persist an immutable 
   let res = response(); await startSession(req('unknown'), res); assert.equal(res.statusCode, 400);
   visibility = { show_digital_package: false };
   res = response(); await startSession(req('digital'), res); assert.equal(res.statusCode, 400);
-  assert.deepEqual(invoices, [10000, 20000]);
+  assert.equal(snapshots.length, 2, 'invalid/hidden packages cannot create extra sessions');
 });
 
 test('layout prices are owner scoped, committed together, and rolled back on write failure', async t => {

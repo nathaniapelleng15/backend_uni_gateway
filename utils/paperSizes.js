@@ -88,11 +88,11 @@ const LABEL_PRESETS = [
     paperWidthMm: 54,
     paperHeightMm: 67,
     /**
-     * Kalibrasi: kotak naik 6 px, ukuran tetap 555 x 555.
-     * Target percobaan 555 x 555 px di x=0 y=71 pada 300 dpi.
-     * 0+555+83=638; 71+555+165=791. Perlu verifikasi cetak fisik.
+     * Target 555 x 567 px di x=0 y=59 pada 300 dpi.
+     * Turun 24 px (0,2 cm dibulatkan) dari acuan y=35, tanpa resize.
+     * 0+555+83=638; 59+567+165=791. Perlu verifikasi cetak fisik.
      */
-    marginTopMm: 71 / (300 / 25.4),
+    marginTopMm: 59 / (300 / 25.4),
     marginLeftMm: 0 / (300 / 25.4),
     marginRightMm: 83 / (300 / 25.4),
     marginBottomMm: 165 / (300 / 25.4),
