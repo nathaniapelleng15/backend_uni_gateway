@@ -92,10 +92,10 @@ const LABEL_PRESETS = [
      * Turun 24 px (0,2 cm dibulatkan) dari acuan y=35, tanpa resize.
      * 0+555+83=638; 59+567+165=791. Perlu verifikasi cetak fisik.
      */
-    marginTopMm: 59 / (300 / 25.4),
+    marginTopMm: 70 / (300 / 25.4),
     marginLeftMm: 0 / (300 / 25.4),
     marginRightMm: 83 / (300 / 25.4),
-    marginBottomMm: 165 / (300 / 25.4),
+    marginBottomMm: 148 / (300 / 25.4),
     /**
      * Kalibrasi posisi fisik, dalam PERSEN MILIMETER (10 = 0,1 mm).
      *
